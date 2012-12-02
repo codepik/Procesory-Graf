@@ -1,0 +1,428 @@
+// Triangle.cpp
+// Our first OpenGL program that will just draw a triangle on the screen.
+
+#include <GLTools.h>            // OpenGL toolkit
+
+#include <GLShaderManager.h>
+#include <GLFrustum.h>
+#include <GLBatch.h>
+#include <GLFrame.h>
+#include <GLMatrixStack.h>
+#include <GLGeometryTransform.h>
+#include <StopWatch.h>
+
+#include <glu.h>
+
+#define FREEGLUT_STATIC
+#include "glut.h"            // Windows FreeGlut equivalent
+
+
+GLuint shader;
+
+
+/*==============================================================*/
+/* Program przystosowany do ?cze??OpenGL                    */
+/* Mo? stanowi?obre rozpoznanie funkcji wiggle               */
+/* Program w VC++ i innych kompilatorach wymaga bibliotek:      */
+/* opengl32.lib glu32.lib                                       */
+/*                                                              */
+/* Uniwersytet ??ki autor A. Dawid 2001r                      */
+/*==============================================================*/
+#include <windows.h>
+#include <GL/GL.H>
+#include <GL/GLU.h>
+
+#define WIDTH 400  //Rozmiar okna - szeroko?
+#define HEIGHT 300  //Rozmiar okna - wysoko?
+#define SWAPBUFFERS SwapBuffers(ghDC)
+
+/* Zmienne globalne potrzebne do inicjalizacj okna */
+CHAR szAppName[]="Windows OpenGL";
+HWND  ghWnd;
+HDC   ghDC;
+HGLRC ghRC;
+RECT rect;
+PAINTSTRUCT ps;
+//--------------- Zmienne animacji ---------------------
+GLfloat x=0.0f,y=0.0f;
+
+// G?wna procedura windows
+LONG WINAPI MainWndProc (HWND, UINT, WPARAM, LPARAM);
+// Funkcje wiggle
+void setupPixelFormat(HDC hDC);
+// Funkcje OpneGL
+GLvoid ResizeGL(GLsizei, GLsizei);
+GLvoid initializeGL(GLsizei width, GLsizei height);
+GLvoid drawScene(GLvoid);
+void polarView( GLdouble, GLdouble, GLdouble, GLdouble);
+
+
+/*===================================================================*/
+/* G?wna funkcja kontrolna                                          */
+/*===================================================================*/
+
+int WINAPI WinMain (HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
+{
+    MSG        msg;
+    WNDCLASS   wndclass;
+
+ /* Rejestrowanie klasy okna */
+    wndclass.style         = 0;
+    wndclass.lpfnWndProc   = (WNDPROC)MainWndProc;
+    wndclass.cbClsExtra    = 0;
+
+    wndclass.cbWndExtra    = 0;
+    wndclass.hInstance     = hInstance;
+    wndclass.hIcon         = LoadIcon (hInstance, IDI_HAND);
+    wndclass.hCursor       = LoadCursor (NULL,IDC_ARROW);
+    wndclass.hbrBackground = (HBRUSH)(COLOR_WINDOW+1);
+    wndclass.lpszMenuName  = szAppName;
+    wndclass.lpszClassName = szAppName;
+
+    if (!RegisterClass (&wndclass) )
+          return FALSE;
+
+
+    /*--------------------------------------------------------*/
+    /* Tworzenie g?wnego okna                                */
+    /*--------------------------------------------------------*/
+
+     ghWnd = CreateWindow (szAppName,"Przyk?d wiggle",WS_OVERLAPPEDWINDOW | WS_CLIPSIBLINGS | WS_CLIPCHILDREN,
+                 0,
+                 0,
+             WIDTH,
+             HEIGHT,
+             NULL,
+             NULL,
+             hInstance,
+             NULL);
+
+    /* Sprawdzenie poprawno?i utworzenia okna */
+    if (!ghWnd)
+        return FALSE;
+
+    /* Wy?ietlenie g?wnego okna */
+    ShowWindow (ghWnd, nCmdShow);
+
+    UpdateWindow (ghWnd);
+
+    /* P?a animacyjno - kontrolna */
+    while (1) {
+       
+        while (PeekMessage(&msg, NULL, 0, 0, PM_NOREMOVE) == TRUE)
+
+          {
+            if (GetMessage(&msg, NULL, 0, 0) )
+            {
+                TranslateMessage(&msg);
+                DispatchMessage(&msg);
+            } else {
+                return TRUE;
+            }
+          }
+
+     
+    }
+}
+
+/*============================================================*/
+/* G?wna procedura okna                                      */
+/*============================================================*/
+
+LONG WINAPI MainWndProc (
+    HWND    hWnd,
+    UINT    uMsg,
+    WPARAM  wParam,
+    LPARAM  lParam)
+{
+    LONG    lRet = 1;
+
+
+    switch (uMsg) {
+
+
+     case WM_CREATE:
+         /* Tworzenie kontekstu renderowania OpenGL */
+            ghDC = GetDC(hWnd);     
+            setupPixelFormat(ghDC);
+            ghRC = wglCreateContext(ghDC);
+            wglMakeCurrent(ghDC, ghRC);
+            GetClientRect(hWnd, &rect);
+            initializeGL(rect.right, rect.bottom);  //Inicjalizacja OpenGL
+            //Timer to inaczej w?ek dzia?j?y niezale?ie od naszego programu
+            SetTimer(hWnd, 101, 5, NULL); // 101-dentyfikator timera, 50 - op??enie w milisekundach
+          break;
+
+
+        case WM_PAINT:  //Wiadomo? Okna Malowania Obrazu - Windows Message (WM)
+            {
+            // Wywo?nie kodu rysunkowego OpenGL
+                drawScene();
+            // Zatwierdzenie odmalowanego obszaru
+            ValidateRect(hWnd,NULL);
+            }
+            break;
+
+     case WM_SIZE:
+          GetClientRect(hWnd, &rect);
+          ResizeGL(rect.right, rect.bottom);
+          break;
+
+
+    case WM_CLOSE:
+        /* Zwalnianie pami? zwi?anej z kontekstem */
+        if (ghRC)
+            wglDeleteContext(ghRC);
+        if (ghDC)
+            ReleaseDC(hWnd, ghDC);
+        ghRC = 0;
+        ghDC = 0;
+
+            DestroyWindow (hWnd);
+          break;
+
+/* ----------- W przypadku ubicia procesu ------------------------- */
+    case WM_DESTROY:
+              KillTimer(hWnd, 101);
+
+              if (ghRC)
+                  wglDeleteContext(ghRC);
+              if (ghDC)
+                  ReleaseDC(hWnd, ghDC);
+              PostQuitMessage(0); //Wy?ij wiadomo? o zako??niu aplikacji
+          break;   
+
+           case WM_TIMER:
+            InvalidateRect(hWnd, NULL, FALSE); //Od?ierzanie okna zgodnie z ustawieniami licznika czasu Timer
+            break;
+
+        default:
+          lRet = DefWindowProc (hWnd, uMsg, wParam, lParam);
+        break;
+     }
+
+    return lRet;
+}
+
+void setupPixelFormat(HDC hDC)
+{
+     PIXELFORMATDESCRIPTOR pfd = {
+    sizeof(PIXELFORMATDESCRIPTOR),    /* rozmiar pfd */
+    1,                                /* numer wersji */
+    PFD_DRAW_TO_WINDOW |            /* obs?ga okien */
+    PFD_SUPPORT_OPENGL |            /* obs?ga OpenGL */  
+    PFD_DOUBLEBUFFER,                /* obs?ga podw??go bufora */
+    PFD_TYPE_RGBA,                    /* kolory w formacie RGBA */
+    16,                                /* 16-bit g?bia koloru */
+    0, 0, 0, 0, 0, 0,                /* bity ignorowane dla koloru */
+    0,                                /* bez bufora alfa */
+    0,                                /* ignorowane bity alfa */
+    0,                                /* bez bufora akumulacji */
+    0, 0, 0, 0,                        /* bity akumulacji ignorowane */
+    16,                                /* bufor g?boko?i */
+    0,                                /* no stencil buffer */
+    0,                                /* no auxiliary buffers */
+    0,                                /* main layer */
+    0,                                /* reserved */
+    0, 0, 0,                        /* no layer, visible, damage masks */
+     };
+
+     int SelectedPixelFormat;
+     BOOL retVal;
+
+     SelectedPixelFormat = ChoosePixelFormat(hDC, &pfd);
+     if (SelectedPixelFormat == 0)
+     {
+    MessageBox(WindowFromDC(hDC),
+        "B?d\n"
+        "Nie mo?a wybra?ego trybu kolor??"
+        "\n",
+        "B?d",
+        MB_ICONERROR | MB_OK);
+    exit(1);
+    }
+
+    retVal = SetPixelFormat(hDC, SelectedPixelFormat, &pfd);
+    if (retVal != TRUE) {
+    MessageBox(WindowFromDC(hDC), "Operacja nie powiod? si? "Error",
+        MB_ICONERROR | MB_OK);
+    exit(1);
+    }
+}
+
+
+/*---------------------------------------------------*/
+
+GLvoid ResizeGL( GLsizei w, GLsizei h)
+{
+     GLfloat aspect;
+
+     //Zabezpieczenie przed dzieleniem przez zero
+     if(h==0)
+         h=1;
+
+     glViewport( 0, 0, w, h);
+
+     aspect = (GLfloat) w / h;
+
+     glMatrixMode( GL_PROJECTION );
+     glLoadIdentity();
+     gluPerspective( 45.0, aspect, 0.1, 200.0 );
+     
+     glMatrixMode( GL_MODELVIEW );
+     glLoadIdentity();
+     glTranslatef(0.0f,0.0f,-20.0f);
+}
+/*==============================================================*/
+
+
+GLvoid initializeGL(GLsizei width, GLsizei height)
+{
+         
+     glClearColor( 0.0f, 0.0f, 0.0f, 0.0f);
+     glClearDepth( 1.0 );
+     //glDepthFunc(GL_LEQUAL);   // Zalancz przeslanianie
+     glShadeModel(GL_SMOOTH);
+     glEnable(GL_DEPTH_TEST);   
+}
+
+//----------------------------------------------------------------
+// Transformacje pilota
+//----------------------------------------------------------------
+void pilotView(GLfloat planex, GLfloat planey, GLfloat planez,
+             GLfloat roll, GLfloat pitch, GLfloat heading)
+
+{   
+     glRotatef(roll, 0.0L, 0.0L, 1.0L);
+     glRotatef(heading, 1.0F, 0.0F, 0.0F);
+     glRotatef(pitch, 0.0F, 1.0F, 0.0F);
+     glTranslatef(-planex, -planey, -planez);
+}
+
+//----------------------------------------------------------------
+// Transformacje polarne
+//----------------------------------------------------------------
+void polarView(GLdouble planex, GLdouble planey, GLdouble planez,
+            GLdouble twist, GLdouble latitude, GLdouble longitude)
+{
+     glTranslated(-planex, -planey, -planez);
+     glRotated(-twist, 0.0, 0.0, 1.0);
+     glRotated(-latitude, 1.0, 0.0, 0.0);
+     glRotated(longitude, 0.0, 0.0, 1.0);
+}
+
+//----------------------------------------------------------------
+// Definicje obiekt??penGL
+//----------------------------------------------------------------
+GLvoid House(GLenum mode)
+{
+
+  glColor3f(1.0,1.0,1.0);
+
+glBegin(mode);
+/*
+  glVertex3f(-4.0,-1.0,1.0);
+  glVertex3f(4.0,-1.0,1.0);
+  glVertex3f(4.0,-1.0,-5.0);
+  glVertex3f(-4.0,-1.0,-5.0);
+ 
+  glVertex3f(-4.0,1.0,1.0);
+  glVertex3f(4.0,1.0,1.0);
+  //glVertex3f(4.0,1.0,-5.0);//strop
+  glVertex3f(-4.0,1.0,-5.0); //belka dach
+ 
+ 
+  glVertex3f(-4.0,2.0,-2.0);//belka
+  glVertex3f(4.0,2.0,-2.0); //belka
+  glVertex3f(4.0,1.0,1.0); //belka
+  glVertex3f(-4.0,1.0,1.0); //belka
+ 
+ 
+  glVertex3f(-4.0,2.0,-2.0);
+  glVertex3f(4.0,2.0,-2.0);
+  glVertex3f(4.0,1.0,-5.0);
+  glVertex3f(-4.0,1.0,-5.0);
+ 
+ 
+  glVertex3f(-4.0,1.0,1.0);
+  glVertex3f(-4.0,-1.0,1.0);
+ 
+
+ 
+  glVertex3f(4.0,-1.0,-5.0);
+  glVertex3f(4.0,1.0,-5.0);
+ 
+ 
+  glVertex3f(4.0,1.0,1.0);
+  glVertex3f(4.0,-1.0,1.0);
+  
+  glVertex3f(-4.0,-1.0,-5.0);
+  glVertex3f(-4,1.0,-5.0);
+  */
+
+glVertex3f(0,0,0);
+glVertex3f(5,0,0);
+glVertex3f(5,0,-10);
+
+glVertex3f(0,0,-10);
+glVertex3f(0,4,-10);
+glVertex3f(0,4,0);
+
+glVertex3f(5,4,0);
+glVertex3f(5,4,-10);
+glVertex3f(5,0,-10);
+
+glVertex3f(5,4,-10);
+glVertex3f(0,4,-10);
+glVertex3f(0,4,0);
+
+glVertex3f(5,4,0);
+glVertex3f(5,0,0);
+glVertex3f(0,0,0);
+
+glVertex3f(0,4,0);
+glVertex3f(2.5,6,0);
+glVertex3f(5,4,0);
+
+glVertex3f(2.5,6,0);
+glVertex3f(2.5,6,-10);
+glVertex3f(5,4,-10);
+
+glVertex3f(2.5,6,-10);
+glVertex3f(0,4,-10);
+glVertex3f(0,0,-10);
+   
+
+
+
+
+  glEnd();
+
+
+ 
+
+}
+
+/*=================================================================*/
+/*   Rysowanie sceny GL                                            */
+/*=================================================================*/
+GLvoid drawScene(GLvoid)
+{
+   
+     glClearColor( 0.0F, 0.0F, 0.9F, 0.0F);
+     glClearDepth( 1.0 );
+
+     glEnable(GL_DEPTH_TEST);
+     glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        x++;
+  /* --------------- Rysujemy Dom -------------------------------- */
+     
+        glPushMatrix();
+       
+        glRotatef(x,0.0f,1.0f,0.0f); 
+          House(GL_LINE_LOOP);
+          glPopMatrix();
+
+        SWAPBUFFERS;
+}
